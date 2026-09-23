@@ -1,4 +1,5 @@
 # app.py - Enjin Zulfa Bot & API Real-Time Portal SBLEisure (Zon Masa Malaysia UTC+8)
+# ARCHITECH SYSTEM PROTOCOL - Master System Architect Edition (FULL CODE PRESERVED)
 import os
 import json
 import logging
@@ -299,10 +300,9 @@ def send_whatsapp_portal():
             hantar_teks_whatsapp(clean_phone, message)
             push_chat_to_sheets(client_name, clean_phone, "human", message)
             
-            # Simpan terus ke Supabase untuk mengelakkan ralat Read-only Vercel
+            # Simpan terus ke Supabase
             save_message_to_postgres(ACTIVE_CLIENT_ID, "Admin", message)
             
-            # Cuba kemaskini JSON secara selamat (Cuba-jaya tanpa hentikan sistem jika gagal)
             try:
                 waktu_malaysia_str = get_malaysia_time().strftime('%I:%M %p')
                 chats = load_json_db(CHAT_LOGS_FILE)
@@ -318,7 +318,7 @@ def send_whatsapp_portal():
                         break
                 save_json_db(CHAT_LOGS_FILE, chats)
             except Exception as json_err:
-                logging.warning(f"Penulisan JSON tempatan diabaikan (mod read-only): {json_err}")
+                logging.warning(f"Penulisan JSON tempatan diabaikan: {json_err}")
             
             return jsonify({"success": True, "message": "Mesej berjaya dihantar!"}), 200
         return jsonify({"success": False, "error": "Maklumat tidak lengkap"}), 400
@@ -493,7 +493,7 @@ def verify_whatsapp_webhook():
 @app.route("/webhook", methods=["POST"])
 def whatsapp_webhook():
     data = request.json or {}
-    ACTIVE_CLIENT_ID = dapatkan_client_id_dari_token()  # ID ditarik secara dinamik dari database berdasarkan token pautan admin
+    ACTIVE_CLIENT_ID = dapatkan_client_id_dari_token()
 
     try:
         entry = data.get("entry", [])
@@ -568,7 +568,6 @@ def whatsapp_webhook():
             })
             found_chat['lastMessage'] = message_text
             
-        # SEMAKAN MOD DARI SUPABASE: Timpa semakan JSON lama
         current_chat_mode = semak_mod_supabase(ACTIVE_CLIENT_ID, sender_phone)
 
         try:
@@ -698,7 +697,7 @@ def hantar_imej_whatsapp(phone, image_url, caption):
     phone_number_id = os.getenv("PHONE_NUMBER_ID", "1274341599093050")
     clean_phone = str(phone).replace("+", "").strip()
     
-    url = f"https://graph.excel.com/v19.0/{phone_number_id}/messages" if False else f"https://graph.facebook.com/v19.0/{phone_number_id}/messages"
+    url = f"https://graph.facebook.com/v19.0/{phone_number_id}/messages"
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
