@@ -1,4 +1,4 @@
-# app.py - Enjin Zulfa Bot & API Real-Time Portal SBLEisure (Zon Masa Malaysia UTC+8)
+﻿# app.py - Enjin Zulfa Bot & API Real-Time Portal SBLEisure (Zon Masa Malaysia UTC+8)
 # ARCHITECH SYSTEM PROTOCOL - Master System Architect Edition (FULL CODE PRESERVED)
 import os
 import json
