@@ -1,4 +1,4 @@
-# app.py - Enjin Zulfa Bot & API Real-Time Portal SBLEisure (Zon Masa Malaysia UTC+8)
+﻿# app.py - Enjin Zulfa Bot & API Real-Time Portal SBLEisure (Zon Masa Malaysia UTC+8)
 # ARCHITECH SYSTEM PROTOCOL - Master System Architect Edition (FULL CODE PRESERVED)
 import os
 import json
@@ -25,11 +25,11 @@ CORS(app)  # Membenarkan portal berhubung secara bebas tanpa sekatan CORS
 KEYWORDS_QR = ["qr", "qr code", "qrcode", "duitnow", "cimb qr", "nak qr", "gambar qr"]
 KEYWORDS_BAYARAN = ["resit", "dah bayar", "selesai bayar", "payment done", "bukti bayar", "bank in"]
 
-# Fail pangkalan data JSON klien (Dikekalkan sepenuhnya seperti asal)
+# Fail pangkalan data JSON klien (Dikekalkan sepenuhnya seperti asal)[cite: 17]
 CHAT_LOGS_FILE = "chat_history_logs.json"
 CLIENT_PROFILE_FILE = "client_profile.json"
 
-# Konfigurasi Pangkalan Data PostgreSQL (Supabase / Railway DB)
+# Konfigurasi Pangkalan Data PostgreSQL (Supabase / Railway DB)[cite: 17]
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 def get_db_connection():
@@ -43,11 +43,11 @@ def get_db_connection():
         return None
 
 def dapatkan_client_id_dari_token():
-    """Mencari ID klien secara dinamik berdasarkan BOT_TOKEN di fail .env yang sepadan dengan Admin Panel"""
+    """Mencari ID klien secara dinamik berdasarkan BOT_TOKEN di fail .env yang sepadan dengan Admin Panel"""[cite: 17]
     bot_token_env = os.getenv("CLIENT_BOT_TOKEN", "bot_shahrilbasrileis_364c5e")
     conn = get_db_connection()
     if not conn:
-        return 6  # Fallback selamat
+        return 6  # Fallback selamat[cite: 17]
     try:
         cursor = conn.cursor()
         cursor.execute("SELECT id FROM clients WHERE bot_token = %s;", (bot_token_env,))
@@ -62,7 +62,7 @@ def dapatkan_client_id_dari_token():
         return 6
 
 def semak_mod_supabase(client_id, phone):
-    """Mendapatkan status mod (ai/human) terus dari pangkalan data Supabase"""
+    """Mendapatkan status mod (ai/human) terus dari pangkalan data Supabase"""[cite: 17]
     conn = get_db_connection()
     if not conn:
         return "ai"
@@ -80,7 +80,7 @@ def semak_mod_supabase(client_id, phone):
         return "ai"
 
 def save_message_to_postgres(client_id, sender_name, message_text):
-    """Fungsi selamat merekodkan mesej WhatsApp terus ke jadual messages bersama timestamp"""
+    """Fungsi selamat merekodkan mesej WhatsApp terus ke jadual messages bersama timestamp"""[cite: 17]
     conn = get_db_connection()
     if not conn:
         return
@@ -97,7 +97,7 @@ def save_message_to_postgres(client_id, sender_name, message_text):
         logging.error(f"Ralat amaran simpan mesej ke PostgreSQL (diabaikan agar bot tidak terhenti): {e}")
 
 def tolak_token_klien(client_id):
-    """Fungsi automatik memotong 1 token dari baki klien setiap kali AI menjawab"""
+    """Fungsi automatik memotong 1 token dari baki klien setiap kali AI menjawab"""[cite: 17]
     conn = get_db_connection()
     if not conn:
         return
@@ -116,7 +116,7 @@ def tolak_token_klien(client_id):
         logging.error(f"Ralat gagal memotong token: {e}")
 
 def get_malaysia_time():
-    # Menyelaraskan masa pelayan UTC kepada zon masa Malaysia (UTC +8)
+    # Menyelaraskan masa pelayan UTC kepada zon masa Malaysia (UTC +8)[cite: 17]
     return datetime.utcnow() + timedelta(hours=8)
 
 def load_json_db(filename):
@@ -140,7 +140,8 @@ def save_json_db(filename, data):
         logging.error(f"Ralat menyimpan fail {filename}: {e}")
 
 def push_chat_to_sheets(client_name, phone_number, sender_type, message_text):
-    apps_script_url = "https://script.google.com/macros/s/AKfycbyv6mxISC-5OJ_Cli3RcPAxQaMJvUSQx5wlyBvg7N2nSh4BBVle7UXimJp7jy94mEB_/exec" 
+    # Pautan Google Apps Script baru untuk fail Sheet CLI-006
+    apps_script_url = "https://script.google.com/macros/s/AKfycbw9Hus32_rW2rEmHzkW5uVVCmx5oPaQmLLzJXjDKrRxGdDbNu70K0Y6CRUZrrNHUyWD1g/exec" 
     payload = {
         "timestamp": get_malaysia_time().isoformat(),
         "client": client_name,
@@ -150,9 +151,9 @@ def push_chat_to_sheets(client_name, phone_number, sender_type, message_text):
     }
     try:
         response = requests.post(apps_script_url, json=payload, timeout=10)
-        logging.info(f"DEBUG SHEET SYNC: Status {response.status_code} - {response.text}")
+        logging.info(f"DEBUG SHEET SYNC CLI-006: Status {response.status_code} - {response.text}")
     except Exception as e:
-        logging.error(f"Ralat hantar ke Google Sheet DB_sbleisure: {e}")
+        logging.error(f"Ralat hantar ke Google Sheet CLI-006: {e}")
 
 @app.route("/", methods=["GET"])
 def index():
@@ -164,8 +165,8 @@ def index():
 
 @app.route("/test-sheet", methods=["GET"])
 def test_sheet_sync():
-    push_chat_to_sheets("sbltransport", "+60132434200", "customer", "Ujian manual sinkronisasi DB_sbleisure")
-    return jsonify({"status": "sent test data to DB_sbleisure sheet"}), 200
+    push_chat_to_sheets("CLI-006", "+60132434200", "customer", "Ujian manual sinkronisasi CLI-006 sheet")
+    return jsonify({"status": "sent test data to CLI-006 sheet"}), 200
 
 @app.route("/api/clients", methods=["GET"])
 def get_clients_data():
@@ -176,7 +177,7 @@ def get_clients_data():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 # ==========================================
-# LALUAN API REALTIME CHAT & ANALITIK PORTAL (DIKEKALKAN SEPENUHNYA)
+# LALUAN API REALTIME CHAT & ANALITIK PORTAL (DIKEKALKAN SEPENUHNYA)[cite: 17]
 # ==========================================
 @app.route("/api/get-leads", methods=["GET"])
 def get_leads_portal():
@@ -292,7 +293,7 @@ def send_whatsapp_portal():
         data = request.json or {}
         phone = data.get("phone", "")
         message = data.get("message", "")
-        client_name = data.get("client", "sbltransport")
+        client_name = data.get("client", "CLI-006")
         ACTIVE_CLIENT_ID = dapatkan_client_id_dari_token()
         
         if phone and message:
@@ -300,7 +301,6 @@ def send_whatsapp_portal():
             hantar_teks_whatsapp(clean_phone, message)
             push_chat_to_sheets(client_name, clean_phone, "human", message)
             
-            # Simpan terus ke Supabase
             save_message_to_postgres(ACTIVE_CLIENT_ID, "Admin", message)
             
             try:
@@ -327,9 +327,9 @@ def send_whatsapp_portal():
 # ==========================================
 
 # ==========================================
-# API DASHBOARD STATS & ANALISIS PERATUSAN (%)
+# API DASHBOARD STATS & ANALISIS PERATUSAN (%)[cite: 17]
 # ==========================================
-@app.route("/api/client/dashboard-stats/<int:client_id>", methods=["GET"])
+@app.route("/api/client/dashboard-stats/", methods=["GET"])
 def get_client_dashboard_stats(client_id):
     conn = get_db_connection()
     if not conn:
@@ -400,7 +400,7 @@ def get_client_dashboard_stats(client_id):
             "manual_pct": "1.1%"
         }), 200
 
-@app.route("/api/client/analytics-stats/<int:client_id>", methods=["GET"])
+@app.route("/api/client/analytics-stats/", methods=["GET"])
 def get_client_analytics_stats(client_id):
     conn = get_db_connection()
     if not conn:
@@ -445,7 +445,7 @@ def get_client_analytics_stats(client_id):
         }), 200
 # ==========================================
 
-@app.route("/api/client/messages/<int:client_id>", methods=["GET"])
+@app.route("/api/client/messages/", methods=["GET"])
 def get_client_messages_supabase(client_id):
     conn = get_db_connection()
     if not conn:
@@ -575,7 +575,7 @@ def whatsapp_webhook():
         except Exception as json_err:
             logging.warning(f"Simpan JSON diabaikan: {json_err}")
             
-        push_chat_to_sheets("sbltransport", sender_phone, "customer", message_text)
+        push_chat_to_sheets("CLI-006", sender_phone, "customer", message_text)
 
         admin_phone = "60132434200"
         if sender_phone == admin_phone and message_lower.startswith(("#nota", "#ingat")):
@@ -589,7 +589,7 @@ def whatsapp_webhook():
             teks_balasan_admin = f"✅ Nota berjaya disimpan untuk ingatan Zulfa:\n\n\"{nota_baru}\""
             hantar_teks_whatsapp(sender_phone, teks_balasan_admin)
             save_message_to_postgres(ACTIVE_CLIENT_ID, "Zulfa (Bot)", teks_balasan_admin)
-            push_chat_to_sheets("sbltransport", sender_phone, "bot", teks_balasan_admin)
+            push_chat_to_sheets("CLI-006", sender_phone, "bot", teks_balasan_admin)
             return jsonify({"status": "success", "action": "admin_memory_saved"}), 200
 
         if current_chat_mode == "human":
@@ -612,7 +612,7 @@ def whatsapp_webhook():
             
             save_message_to_postgres(ACTIVE_CLIENT_ID, "Zulfa (Bot)", caption_teks)
             tolak_token_klien(ACTIVE_CLIENT_ID)
-            push_chat_to_sheets("sbltransport", sender_phone, "bot", caption_teks)
+            push_chat_to_sheets("CLI-006", sender_phone, "bot", caption_teks)
             return jsonify({"status": "success", "action": "sent_qr_image"}), 200
 
         if any(keyword in message_lower for keyword in KEYWORDS_BAYARAN) or msg_type == "image":
@@ -637,7 +637,7 @@ def whatsapp_webhook():
             hantar_teks_whatsapp(sender_phone, balasan_pelanggan)
             save_message_to_postgres(ACTIVE_CLIENT_ID, "Zulfa (Bot)", balasan_pelanggan)
             tolak_token_klien(ACTIVE_CLIENT_ID)
-            push_chat_to_sheets("sbltransport", sender_phone, "bot", balasan_pelanggan)
+            push_chat_to_sheets("CLI-006", sender_phone, "bot", balasan_pelanggan)
             return jsonify({"status": "success", "action": "payment_notification_sent"}), 200
 
         if message_text and message_text != "[Gambar / Resit Dihantar]":
@@ -661,7 +661,7 @@ def whatsapp_webhook():
                 except Exception:
                     pass
 
-            push_chat_to_sheets("sbltransport", sender_phone, "bot", jawapan_ai)
+            push_chat_to_sheets("CLI-006", sender_phone, "bot", jawapan_ai)
 
         return jsonify({"status": "success", "action": "sent_ai_response"}), 200
 
