@@ -697,94 +697,67 @@ def whatsapp_webhook():
                 "time": waktu_sebenar
             })
             found_chat['lastMessage'] = message_text
-            
-        current_chat_mode = semak_mod_supabase(ACTIVE_CLIENT_ID, sender_phone)
+                save_json_db(CHAT_LOGS_FILE, sbl_chats)
+                except Exception:
+                    pass
 
-        try:
-            save_json_db(CHAT_LOGS_FILE, sbl_chats)
-        except Exception as json_err:
-            logging.warning(f"Simpan JSON diabaikan: {json_err}")
-            
-        push_chat_to_sheets("CLI-006", sender_phone, "customer", message_text)
+            push_chat_to_sheets("CLI-006", sender_phone, "bot", jawapan_ai)
 
-        admin_phone = "60132434200"
-        if sender_phone == admin_phone and message_lower.startswith(("#nota", "#ingat")):
-            nota_baru = message_text.replace("#nota", "").replace("#NOTA", "").replace("#ingat", "").replace("#INGAT", "").strip()
-            try:
-                with open("admin_memory.txt", "a", encoding="utf-8") as f:
-                    f.write(f"- [{get_malaysia_time().strftime('%Y-%m-%d %H:%M')}] {nota_baru}\n")
-            except Exception:
-                pass
-            
-            teks_balasan_admin = f"✅ Nota berjaya disimpan untuk ingatan Zulfa:\n\n\"{nota_baru}\""
-            hantar_teks_whatsapp(sender_phone, teks_balasan_admin)
-            save_message_to_postgres(ACTIVE_CLIENT_ID, "Zulfa (Bot)", teks_balasan_admin)
-            push_chat_to_sheets("CLI-006", sender_phone, "bot", teks_balasan_admin)
-            return jsonify({"status": "success", "action": "admin_memory_saved"}), 200
+        return jsonify({"status": "success", "action": "sent_ai_response"}), 200
 
-        if current_chat_mode == "human":
-            logging.info(f"Mesej daripada {sender_phone} diabaikan oleh AI kerana mod semasa adalah Human Touch.")
-            return jsonify({"status": "success", "action": "ignored_human_mode"}), 200
+    except Exception as e:
+        logging.error(f"Ralat pada webhook: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
-        if any(keyword in message_lower for keyword in KEYWORDS_QR):
-            toyyib_link = getattr(sop_payment, 'TOYYIBPAY_LINK', 'https://toyyibpay.com/sbl-online')
-            caption_teks = (
-                "Berikut adalah QR Code DuitNow CIMB rasmi **SHAHRIL BASRI LEISURE ENTERPRISE**.\n\n"
-                "Sila imbas untuk membuat bayaran **50% deposit** atau **Bayaran Penuh (Full Payment)**.\n"
-                f"Pautan ToyyibPay alternatif: {toyyib_link}\n\n"
-                "Selepas bayaran dibuat, sila hantar resit di sini ya. Terima kasih!"
-            )
-            qr_link = getattr(sop_payment, "QR_CODE_DIRECT_LINK", "")
-            if qr_link:
-                hantar_imej_whatsapp(phone=sender_phone, image_url=qr_link, caption=caption_teks)
-            else:
-                hantar_teks_whatsapp(sender_phone, caption_teks)
-            
-            save_message_to_postgres(ACTIVE_CLIENT_ID, "Zulfa (Bot)", caption_teks)
-            tolak_token_klien(ACTIVE_CLIENT_ID)
-            push_chat_to_sheets("CLI-006", sender_phone, "bot", caption_teks)
-            return jsonify({"status": "success", "action": "sent_qr_image"}), 200
+def hantar_teks_whatsapp(phone, text):
+    token = os.getenv("WHATSAPP_TOKEN")
+    phone_number_id = os.getenv("PHONE_NUMBER_ID", "1274341599093050")
+    clean_phone = str(phone).replace("+", "").strip()
+    
+    url = f"https://graph.facebook.com/v19.0/{phone_number_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": clean_phone,
+        "type": "text",
+        "text": {"body": text},
+    }
+    
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        logging.info(f"Respons hantar WhatsApp ke {clean_phone}: {response.status_code} - {response.text}")
+    except Exception as e:
+        logging.error(f"Ralat sambungan Meta API (teks): {e}")
 
-        if any(keyword in message_lower for keyword in KEYWORDS_BAYARAN) or msg_type == "image":
-            data_tempahan_baru = {
-                "ref_id": f"SB-{sender_phone[-4:]}",
-                "nama": f"Pelanggan ({sender_phone})",
-                "no_tel": sender_phone,
-                "tarikh": "Disemak melalui WhatsApp",
-                "status_bayaran": "Resit/Bayaran Dihantar oleh Pelanggan"
-            }
+def hantar_imej_whatsapp(phone, image_url, caption):
+    token = os.getenv("WHATSAPP_TOKEN")
+    phone_number_id = os.getenv("PHONE_NUMBER_ID", "1274341599093050")
+    clean_phone = str(phone).replace("+", "").strip()
+    
+    url = f"https://graph.facebook.com/v19.0/{phone_number_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": clean_phone,
+        "type": "image",
+        "image": {
+            "link": image_url,
+            "caption": caption
+        }
+    }
+    
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        logging.info(f"Respons hantar Imej QR ke {clean_phone}: {response.status_code} - {response.text}")
+    except Exception as e:
+        logging.error(f"Ralat sambungan Meta API (imej): {e}")
 
-            try:
-                sop_payment.hantar_emel_admin(data_tempahan_baru)
-            except Exception:
-                pass
-                
-            admin_phone_target = "60132434200"
-            teks_admin = sop_payment.format_admin_notification(data_tempahan_baru)
-            hantar_teks_whatsapp(admin_phone_target, teks_admin)
-
-            balasan_pelanggan = "Terima kasih! Resit/makluman bayaran anda telah diterima dan disemak oleh pihak pengurusan."
-            hantar_teks_whatsapp(sender_phone, balasan_pelanggan)
-            save_message_to_postgres(ACTIVE_CLIENT_ID, "Zulfa (Bot)", balasan_pelanggan)
-            tolak_token_klien(ACTIVE_CLIENT_ID)
-            push_chat_to_sheets("CLI-006", sender_phone, "bot", balasan_pelanggan)
-            return jsonify({"status": "success", "action": "payment_notification_sent"}), 200
-
-        if message_text and message_text != "[Gambar / Resit Dihantar]":
-            jawapan_ai = zulfa_brain.proses_mesej(sender_phone, message_text)
-            hantar_teks_whatsapp(sender_phone, jawapan_ai)
-            
-            save_message_to_postgres(ACTIVE_CLIENT_ID, "Zulfa (Bot)", jawapan_ai)
-            tolak_token_klien(ACTIVE_CLIENT_ID)
-            
-            waktu_balasan_ai = get_malaysia_time().strftime('%I:%M %p')
-            if found_chat:
-                found_chat.setdefault('messages', []).append({
-                    "sender": "bot", 
-                    "name": "Zulfa (Bot)", 
-                    "text": jawapan_ai, 
-                    "time": waktu_balasan_ai
-                })
-                found_chat['lastMessage'] = jawapan_ai
-                try:
-                    save_json_db(CHAT_LOGS_FILE, sbl_ch
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
