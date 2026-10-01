@@ -459,7 +459,7 @@ def send_whatsapp_portal():
 # ==========================================
 # API DASHBOARD STATS & ANALISIS PERATUSAN (%)
 # ==========================================
-@app.route("/api/client/dashboard-stats/<int:client_id>", methods=["GET"])
+@app.route("/api/client/dashboard-stats/", methods=["GET"])
 def get_client_dashboard_stats(client_id):
     conn = get_db_connection()
     if not conn:
@@ -530,7 +530,7 @@ def get_client_dashboard_stats(client_id):
             "manual_pct": "1.1%"
         }), 200
 
-@app.route("/api/client/analytics-stats/<int:client_id>", methods=["GET"])
+@app.route("/api/client/analytics-stats/", methods=["GET"])
 def get_client_analytics_stats(client_id):
     conn = get_db_connection()
     if not conn:
@@ -575,7 +575,7 @@ def get_client_analytics_stats(client_id):
         }), 200
 # ==========================================
 
-@app.route("/api/client/messages/<int:client_id>", methods=["GET"])
+@app.route("/api/client/messages/", methods=["GET"])
 def get_client_messages_supabase(client_id):
     conn = get_db_connection()
     if not conn:
@@ -663,9 +663,7 @@ def whatsapp_webhook():
 
         save_message_to_postgres(ACTIVE_CLIENT_ID, f"+{sender_phone}", message_text)
 
-        message_lower = message_text.lower()
         waktu_sebenar = get_malaysia_time().strftime('%I:%M %p')
-        
         sbl_chats = load_json_db(CHAT_LOGS_FILE)
         
         found_chat = None
@@ -697,11 +695,33 @@ def whatsapp_webhook():
                 "time": waktu_sebenar
             })
             found_chat['lastMessage'] = message_text
-                save_json_db(CHAT_LOGS_FILE, sbl_chats)
-                except Exception:
-                    pass
+            
+            # Semak mod (AI atau Human Touch)
+            chat_mode = semak_mod_supabase(ACTIVE_CLIENT_ID, sender_phone)
+            if chat_mode == "ai":
+                # Dapatkan jawapan daripada enjin Zulfa AI
+                jawapan_ai = zulfa_brain.jana_jawapan(sender_phone, message_text)
+                
+                # Masukkan jawapan bot ke dalam senarai mesej
+                found_chat['messages'].append({
+                    "sender": "bot",
+                    "name": "Zulfa",
+                    "text": jawapan_ai,
+                    "time": get_malaysia_time().strftime('%I:%M %p')
+                })
+                found_chat['lastMessage'] = jawapan_ai
+                
+                # Hantar mesej melalui WhatsApp API
+                hantar_teks_whatsapp(sender_phone, jawapan_ai)
+                
+                # Simpan rekod ke PostgreSQL & Google Sheets
+                save_message_to_postgres(ACTIVE_CLIENT_ID, "Zulfa Bot", jawapan_ai)
+                push_chat_to_sheets("CLI-006", sender_phone, "bot", jawapan_ai)
+                
+                # Tolak token klien
+                tolak_token_klien(ACTIVE_CLIENT_ID)
 
-            push_chat_to_sheets("CLI-006", sender_phone, "bot", jawapan_ai)
+            save_json_db(CHAT_LOGS_FILE, sbl_chats)
 
         return jsonify({"status": "success", "action": "sent_ai_response"}), 200
 
