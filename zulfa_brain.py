@@ -102,6 +102,11 @@ def bina_system_instruction():
         with open("admin_memory.txt", "r", encoding="utf-8") as f:
             admin_notes = f.read()
 
+    arahan_khas_portal = ""
+    if os.path.exists("custom_instructions.txt"):
+        with open("custom_instructions.txt", "r", encoding="utf-8") as f:
+            arahan_khas_portal = f.read()
+
     try:
         import pytz
         tz_malaysia = pytz.timezone('Asia/Kuala_Lumpur')
@@ -178,6 +183,9 @@ def bina_system_instruction():
     
     === NOTA KHAS & ARAHAN TERKINI DARIPADA ADMIN ===
     {admin_notes}
+
+    === ARAHAN KHAS TAMBAHAN DARI PORTAL SETTING ===
+    {arahan_khas_portal}
 
     === BORANG ONE WAY ===
     Terima kasih kerana berminat dengan perkhidmatan sewaan Mpv/Van/Bas persiaran   
@@ -302,3 +310,7 @@ def proses_mesej(no_telefon, mesej_user, nama_pelanggan=None):
     except Exception as e:
         logging.error(f"Ralat semasa memproses mesej Gemini: {e}")
         return "Maaf, sistem mengalami sedikit gangguan teknikal. Sila cuba sebentar lagi atau hubungi pegawai kami."
+
+def jana_jawapan(no_telefon, mesej_user, nama_pelanggan=None):
+    """Alias fungsi untuk keserasian dengan app.py"""
+    return proses_mesej(no_telefon, mesej_user, nama_pelanggan=nama_pelanggan)
