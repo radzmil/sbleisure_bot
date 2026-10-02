@@ -1,3 +1,10 @@
 .env
 sbleisure.db
 __pycache__/
+chat_history_logs.json
+client_profile.json
+subscription.json
+zulfa_customers_memory.json
+custom_instructions.txt
+admin_memory.txt
+*.log

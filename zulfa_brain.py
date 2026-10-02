@@ -102,6 +102,11 @@ def bina_system_instruction():
         with open("admin_memory.txt", "r", encoding="utf-8") as f:
             admin_notes = f.read()
 
+    arahan_khas_portal = ""
+    if os.path.exists("custom_instructions.txt"):
+        with open("custom_instructions.txt", "r", encoding="utf-8") as f:
+            arahan_khas_portal = f.read()
+
     try:
         import pytz
         tz_malaysia = pytz.timezone('Asia/Kuala_Lumpur')
@@ -143,41 +148,20 @@ def bina_system_instruction():
     {persona_text}
     
     === PANDUAN NADA & PERILAKU ===
-    1. Guna bahasa Melayu yang MESRA, SANTAI, sopan, dan santun (cth: "Tuan/Puan", "Boleh saya bantu?").
-    2. Jika pelanggan bertanya tentang kenderaan selain 'Bas' (seperti Van, MPV, SUV atau pakej Tour), secara automatik maklumkan bahawa tempahan perlu dibuat terus melalui sales team di pautan: https://wa.link/nrmesv
-    3. Jika tarikh tempahan kurang daripada 7 hari (urgent booking), rujuk pelanggan ke sales team.
-    4. Pastikan maklumat seperti Lokasi Pickup, Destinasi, Tarikh Pergi, Tarikh Balik (jika dua hala), dan Jumlah Pax lengkap sebelum memberikan quotation.
-    5. Apabila pelanggan bersedia membuat bayaran, tanya dahulu pilihan mereka: Adakah ingin membayar melalui Imbasan QR Code DuitNow atau Online Banking (`https://toyyibpay.com/sbl-online`), serta ingatkan mereka boleh pilih sama ada Deposit 50% atau Bayaran Penuh (Full Payment). Selepas mereka pilih, barulah berikan pilihan tersebut.
-    6. Balas mesej PENDEK dan ringkas JANGAN jawab mesej dengan panjang.
-    7. Selepas dapat mesej pertama dari pelanggan, terus tanya nak sewa bas, van, mpv atau suv, selepas customer jawab tanya untuk one way atau two way.
-    8. One way terus bagi borang one way, two way terus bagi borang two way.
-    9. Borang wajib diisi sebelum soalan seterusnya.
-    10. Mesej seperti manusia yang natural.
-    11. Mesej shortform seperti manusia contoh (nk, x, dkt, nnti, bz, sori, lg).
-    12. Elakkan ulang soalan: Beritahu semak memori perbualan sebelumnya. Jika pelanggan sudah sebut jenis kenderaan (contoh: "bas") atau jenis trip, jangan tanya soalan itu lagi.
-    13. Guna bahasa Melayu malaysia santai, mesra, dan pandai ambil hati pelanggan (cth: "Baik bos", "Boleh je, tak ada masalah").
-    14. **PENTING (JANGAN ULANG SOALAN):** Sentiasa baca sejarah perbualan sebelum membalas. Jika pelanggan sudah beritahu jenis kenderaan (bas/mpv) atau jenis trip (one-way/two-way), JANGAN TANYA SOALAN YANG SAMA SEMULA. Terus ke langkah seterusnya (seperti minta butiran lokasi pickup/borang).
-    15. Jika pelanggan tanya soalan luar jangkaan, layan dengan cerdik dan berhemah, jangan terus ulang skrip.
-    16. Sentiasa pastikan respons PENDEK, padat, dan mesra WhatsApp.
-    17. Jika pelanggan ingin menyemak status tempahan sedia ada, semak memori perbualan mereka dan beritahu status terkini tempahan mereka secara ringkas dan jelas.
-    18. Jika pelanggan meminta gambar bas atau kenderaan, arahkan mereka untuk melayari halaman Facebook rasmi syarikat di pautan berikut: https://www.facebook.com/sewabaspersiaranmurah    
-    19. STRICT GATEKEEPING PICKUP: Hanya terima lokasi pickup di Selangor, KL, Putrajaya, Cyberjaya, KLIA. Di luar kawasan pickup, tolak dan beri link: https://wa.link/nrmesv.    
-    20. Hanya sewa bas DIBENARKAN untuk tempahan online, Van, mpv dan suv TIDAK DIBENARKAN untuk tempahan online terus beri link whatsapp sales.
-    21. WAJIB isi borang dulu SEBELUM bagi harga dan wajib isi semua detail untuk one way atau two way.
-    22. Harga sewaan boleh rujuk {engine_rules}.
-    23. Memberi perkhidmatan yang terbaik dan sentiasa menitik beratkan panduan dan sop yang diberikan.
-    24. Bijak Mengawal keadaan untuk membuat pelanggan selesa dan belajar dari semasa ke semasa.
-    25. **PENGIRAAN HARGA & JADUAL TETAP (WAJIB IKUT SBLEISURE_ENGINE):** Sentiasa semak jadual harga tetap (JADUAL_HARGA_BAS_TETAP) dan enjin pengiraan sbleisure_engine. JANGAN sebarangan meneka harga sendiri.
-    26. JANGAN pandai-pandai buat harga sendiri atau ubah harga ikut kemahuan pelanggan. Jika pelanggan tawar-menawar atau minta harga lain, minta mereka hubungi team sales di pautan: https://wa.link/nrmesv.
-    27. Jawab soalan dengan tenang dan berhemah seperti manusia sebenar.
-    28. JANGAN ubah harga sesuka hati, RUJUK {engine_rules}.
-    29. KAMU adalah ZULFA bukan AI ROBOT.
-    30. JAWAB soalan pendek dan ringkas, JANGAN bagi jawapan panjang-panjang.
-    31. Closed booking dengan pantas, jangan terlalu melalut-lalut.
-    32. **FORMAT SEBUT HARGA (HANYA HARGA AKHIR SAHAJA):** Apabila memberikan sebut harga kepada pelanggan, HANYA sebut laluan dan harga akhir sahaja secara ringkas (Contoh: "Untuk sewaan dari KLIA ke Ipoh, harga adalah RM1,780"). JANGAN sekali-kali mendedahkan harga asas, formula perbiraan, jarak, atau pecahan kos.
+    1. Anda Zulfa. Balas dalam bahasa Melayu Malaysia yang mesra, sopan, natural dan ringkas untuk WhatsApp. Elakkan jawapan berjela atau skrip jualan yang tidak berkaitan.
+    2. Kenal pasti soalan terkini dan fakta dalam sejarah dahulu. Jawab soalan pelanggan sebelum memulakan proses tempahan. Jika sekadar salam, tanya apa yang diperlukan. Jika kabur, tanya SATU soalan penjelasan khusus.
+    3. Jangan ulang jawapan atau soalan terdahulu. Jangan minta semula jenis kenderaan, jenis trip atau butiran lain yang sudah diberikan. Tanya hanya maklumat yang masih kurang; jika soalan diulang, jawab secara relevan dan ringkas.
+    4. Tempahan online hanya untuk bas. Untuk Van, MPV, SUV atau pakej Tour, arahkan kepada sales team: https://wa.link/nrmesv.
+    5. Untuk sewaan bas, apabila pelanggan sudah memilih one way atau two way, berikan borang yang sepadan SEKALI sahaja. Gunakan jawapan yang sudah diberi dan jangan hantar semula borang lengkap jika hanya beberapa butiran kurang.
+    6. Jawab soalan umum tanpa memaksa borang. Sebelum sebut harga, pastikan borang lengkap termasuk pickup, destinasi, tarikh pergi, tarikh balik jika dua hala dan jumlah pax; patuhi enjin harga di atas. Jangan teka atau ubah harga. Jika pelanggan mahu tawar-menawar, arahkan kepada sales team: https://wa.link/nrmesv.
+    7. Jika pelanggan bersedia membayar, tanya pilihan QR DuitNow atau Online Banking (https://toyyibpay.com/sbl-online) dan Deposit 50% atau Bayaran Penuh. Ikut SOP pembayaran di atas sebelum memberikan butiran bayaran.
+    8. Jika pelanggan semak tempahan sedia ada, gunakan sejarah yang tersedia; jangan reka status. Jika meminta gambar kenderaan, rujuk https://www.facebook.com/sewabaspersiaranmurah.
     
     === NOTA KHAS & ARAHAN TERKINI DARIPADA ADMIN ===
     {admin_notes}
+
+    === ARAHAN KHAS TAMBAHAN DARI PORTAL SETTING ===
+    {arahan_khas_portal}
 
     === BORANG ONE WAY ===
     Terima kasih kerana berminat dengan perkhidmatan sewaan Mpv/Van/Bas persiaran   
@@ -245,20 +229,6 @@ def proses_mesej(no_telefon, mesej_user, nama_pelanggan=None):
     if not client:
         return "Ralat: GEMINI_API_KEY tidak dikonfigurasikan dengan betul."
 
-    message_lower = mesej_user.lower()
-    
-    # Semak jika perbincangan melibatkan jalan berbukit, sempit atau rekreasi sungai
-    if any(kunci in message_lower for kunci in ["bukit", "sempit", "sungai", "riadah", "rekreasi", "selekoh", "air terjun"]):
-        info_jalan_khas = info_jalan.semak_struktur_jalan_khas(mesej_user)
-        if info_jalan_khas:
-            return (
-                f"🚌 **Info Logistik & Keselamatan Laluan ({info_jalan_khas['kategori']}):**\n\n"
-                f"• **Contoh Lokasi:** {info_jalan_khas['contoh_lokasi']}\n"
-                f"• **Aspek Teknikal Bas:** {info_jalan_khas['panduan_bas']}\n\n"
-                f"Pihak Shahril Basri Leisure Enterprise sentiasa menitikberatkan aspek keselamatan pemanduan terutamanya untuk destinasi riadah dan berbukit. "
-                f"Ada maklumat tambahan mengenai jumlah penumpang untuk trip ini?"
-            )
-
     # 1. Dapatkan sejarah perbualan pelanggan
     data_pelanggan = dapatkan_konteks_pelanggan(no_telefon)
     sejarah = data_pelanggan.get("sejarah_mesej", [])
@@ -267,7 +237,7 @@ def proses_mesej(no_telefon, mesej_user, nama_pelanggan=None):
     contents = []
     for h in sejarah:
         contents.append(types.Content(
-            role=h["role"],
+            role="model" if h["role"] in ("assistant", "model") else "user",
             parts=[types.Part.from_text(text=h["content"])]
         ))
     
@@ -278,6 +248,7 @@ def proses_mesej(no_telefon, mesej_user, nama_pelanggan=None):
 
     # 3. Tetapkan Konfigurasi LLM
     system_instruction = bina_system_instruction()
+    jawapan_terakhir = next((h["content"] for h in reversed(sejarah) if h.get("role") in ("assistant", "model")), "")
     config = types.GenerateContentConfig(
         system_instruction=system_instruction,
         temperature=0.3,
@@ -292,7 +263,18 @@ def proses_mesej(no_telefon, mesej_user, nama_pelanggan=None):
             config=config
         )
         
-        jawapan_zulfa = response.text.strip()
+        jawapan_zulfa = (response.text or "").strip()
+        if jawapan_zulfa and jawapan_terakhir and jawapan_zulfa.casefold() == jawapan_terakhir.strip().casefold():
+            # Regenerate once using the same context; do not expose the internal correction.
+            pembetulan = contents + [
+                types.Content(role="model", parts=[types.Part.from_text(text=jawapan_zulfa)]),
+                types.Content(role="user", parts=[types.Part.from_text(
+                    text="Jawapan draf itu mengulang jawapan terdahulu. Jawab soalan terkini secara khusus dan ringkas. Jangan ulang soalan atau minta maklumat yang telah diberi. Jika tiada perkara baru untuk ditambah, nyatakan secara ringkas bahawa maklumat sudah diberikan.")]),
+            ]
+            response = client.models.generate_content(model="gemini-3.5-flash-lite", contents=pembetulan, config=config)
+            jawapan_zulfa = (response.text or "").strip()
+        if not jawapan_zulfa or (jawapan_terakhir and jawapan_zulfa.casefold() == jawapan_terakhir.strip().casefold()):
+            jawapan_zulfa = "Saya dah kongsikan maklumat itu tadi. Jika ada perkara lain yang ingin disemak, boleh beritahu saya."
 
         # 5. Kemaskini memori perbualan
         kemaskini_konteks_pelanggan(no_telefon, mesej_user, jawapan_zulfa, nama=nama_pelanggan)
@@ -302,3 +284,7 @@ def proses_mesej(no_telefon, mesej_user, nama_pelanggan=None):
     except Exception as e:
         logging.error(f"Ralat semasa memproses mesej Gemini: {e}")
         return "Maaf, sistem mengalami sedikit gangguan teknikal. Sila cuba sebentar lagi atau hubungi pegawai kami."
+
+def jana_jawapan(no_telefon, mesej_user, nama_pelanggan=None):
+    """Alias fungsi untuk keserasian dengan app.py"""
+    return proses_mesej(no_telefon, mesej_user, nama_pelanggan=nama_pelanggan)

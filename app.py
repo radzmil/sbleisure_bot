@@ -3,12 +3,16 @@
 import os
 import json
 import logging
+import hmac
+import hashlib
+import sqlite3
+from contextlib import closing
+import time
 import requests
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify
-from flask_cors import CORS
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -20,16 +24,67 @@ import sop_payment
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 app = Flask(__name__)
-CORS(app)  # Membenarkan portal berhubung secara bebas tanpa sekatan CORS
+# Portal berhubung melalui pelayan sendiri; API tidak perlu CORS terbuka.
 
 KEYWORDS_QR = ["qr", "qr code", "qrcode", "duitnow", "cimb qr", "nak qr", "gambar qr"]
 KEYWORDS_BAYARAN = ["resit", "dah bayar", "selesai bayar", "payment done", "bukti bayar", "bank in"]
 
-# Fail pangkalan data JSON klien (Dikekalkan sepenuhnya seperti asal)[cite: 17]
+# Fail pangkalan data JSON klien
 CHAT_LOGS_FILE = "chat_history_logs.json"
 CLIENT_PROFILE_FILE = "client_profile.json"
+CUSTOM_PROMPT_FILE = "custom_instructions.txt"
+SUBSCRIPTION_FILE = "subscription.json"
+WEBHOOK_DEDUP_DB = os.getenv("WEBHOOK_DEDUP_DB", "webhook_dedup.sqlite3")
 
-# Konfigurasi Pangkalan Data PostgreSQL (Supabase / Railway DB)[cite: 17]
+def claim_webhook_message(message_id):
+    """Claim a Meta message once, including across workers and restarts.
+
+    Keep the claim even if downstream delivery fails: retrying the whole webhook
+    could otherwise send the same customer multiple replies.
+    """
+    with closing(sqlite3.connect(WEBHOOK_DEDUP_DB, timeout=10)) as conn:
+        with conn:
+            conn.execute("CREATE TABLE IF NOT EXISTS processed_messages (id TEXT PRIMARY KEY, received_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+            cursor = conn.execute("INSERT OR IGNORE INTO processed_messages (id) VALUES (?)", (message_id,))
+            return cursor.rowcount == 1
+
+def allow_ai_reply(phone):
+    """Atomically limit replies per recipient across concurrent workers."""
+    cooldown = max(0, int(os.getenv("AI_REPLY_COOLDOWN_SECONDS", "120")))
+    now = int(time.time())
+    with closing(sqlite3.connect(WEBHOOK_DEDUP_DB, timeout=10)) as conn:
+        with conn:
+            conn.execute("CREATE TABLE IF NOT EXISTS reply_limits (phone TEXT PRIMARY KEY, last_reply INTEGER NOT NULL)")
+            cursor = conn.execute(
+                "INSERT INTO reply_limits (phone, last_reply) VALUES (?, ?) "
+                "ON CONFLICT(phone) DO UPDATE SET last_reply = excluded.last_reply "
+                "WHERE reply_limits.last_reply <= excluded.last_reply - ?",
+                (phone, now, cooldown),
+            )
+            return cursor.rowcount == 1
+
+# Kunci API kongsi rahsia untuk melindungi laluan /api/* daripada capaian tanpa kebenaran
+PORTAL_API_KEY = os.getenv("PORTAL_API_KEY", "").strip()
+META_APP_SECRET = os.getenv("META_APP_SECRET", "").strip()
+
+@app.before_request
+def semak_kunci_api():
+    """Menolak capaian ke laluan /api/* jika kunci API portal tidak sepadan."""
+    if request.path.startswith("/api/"):
+        if not PORTAL_API_KEY:
+            return jsonify({"success": False, "error": "API tidak dikonfigurasi"}), 503
+        kunci_diberi = request.headers.get("X-API-Key", "")
+        if not hmac.compare_digest(kunci_diberi, PORTAL_API_KEY):
+            return jsonify({"success": False, "error": "Unauthorized"}), 401
+    if request.path == "/webhook" and request.method == "POST":
+        if not META_APP_SECRET:
+            return jsonify({"status": "error", "message": "Webhook tidak dikonfigurasi"}), 503
+        signature = request.headers.get("X-Hub-Signature-256", "")
+        expected = "sha256=" + hmac.new(META_APP_SECRET.encode("utf-8"), request.get_data(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            return jsonify({"status": "error", "message": "Forbidden"}), 403
+
+# Konfigurasi Pangkalan Data PostgreSQL (Supabase / Railway DB)
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 def get_db_connection():
@@ -43,11 +98,11 @@ def get_db_connection():
         return None
 
 def dapatkan_client_id_dari_token():
-    """Mencari ID klien secara dinamik berdasarkan BOT_TOKEN di fail .env yang sepadan dengan Admin Panel"""[cite: 17]
-    bot_token_env = os.getenv("CLIENT_BOT_TOKEN", "bot_shahrilbasrileis_364c5e")
+    """Mencari ID klien secara dinamik berdasarkan BOT_TOKEN di fail .env yang sepadan dengan Admin Panel"""
+    bot_token_env = os.getenv("CLIENT_BOT_TOKEN", "")
     conn = get_db_connection()
-    if not conn:
-        return 6  # Fallback selamat[cite: 17]
+    if not conn or not bot_token_env:
+        return None
     try:
         cursor = conn.cursor()
         cursor.execute("SELECT id FROM clients WHERE bot_token = %s;", (bot_token_env,))
@@ -56,13 +111,13 @@ def dapatkan_client_id_dari_token():
         conn.close()
         if res:
             return res['id']
-        return 6
+        return None
     except Exception as e:
         logging.error(f"Ralat cari client_id dari token: {e}")
-        return 6
+        return None
 
 def semak_mod_supabase(client_id, phone):
-    """Mendapatkan status mod (ai/human) terus dari pangkalan data Supabase"""[cite: 17]
+    """Mendapatkan status mod (ai/human) terus dari pangkalan data Supabase"""
     conn = get_db_connection()
     if not conn:
         return "ai"
@@ -80,7 +135,7 @@ def semak_mod_supabase(client_id, phone):
         return "ai"
 
 def save_message_to_postgres(client_id, sender_name, message_text):
-    """Fungsi selamat merekodkan mesej WhatsApp terus ke jadual messages bersama timestamp"""[cite: 17]
+    """Fungsi selamat merekodkan mesej WhatsApp terus ke jadual messages bersama timestamp"""
     conn = get_db_connection()
     if not conn:
         return
@@ -97,7 +152,7 @@ def save_message_to_postgres(client_id, sender_name, message_text):
         logging.error(f"Ralat amaran simpan mesej ke PostgreSQL (diabaikan agar bot tidak terhenti): {e}")
 
 def tolak_token_klien(client_id):
-    """Fungsi automatik memotong 1 token dari baki klien setiap kali AI menjawab"""[cite: 17]
+    """Fungsi automatik memotong 1 token dari baki klien setiap kali AI menjawab"""
     conn = get_db_connection()
     if not conn:
         return
@@ -116,7 +171,7 @@ def tolak_token_klien(client_id):
         logging.error(f"Ralat gagal memotong token: {e}")
 
 def get_malaysia_time():
-    # Menyelaraskan masa pelayan UTC kepada zon masa Malaysia (UTC +8)[cite: 17]
+    # Menyelaraskan masa pelayan UTC kepada zon masa Malaysia (UTC +8)
     return datetime.utcnow() + timedelta(hours=8)
 
 def load_json_db(filename):
@@ -141,7 +196,10 @@ def save_json_db(filename, data):
 
 def push_chat_to_sheets(client_name, phone_number, sender_type, message_text):
     # Pautan Google Apps Script baru untuk fail Sheet CLI-006
-    apps_script_url = "https://script.google.com/macros/s/AKfycbw9Hus32_rW2rEmHzkW5uVVCmx5oPaQmLLzJXjDKrRxGdDbNu70K0Y6CRUZrrNHUyWD1g/exec" 
+    apps_script_url = os.getenv("GOOGLE_APPS_SCRIPT_URL", "")
+    if not apps_script_url:
+        logging.warning("GOOGLE_APPS_SCRIPT_URL tidak dikonfigurasi; sync sheet dilangkau")
+        return
     payload = {
         "timestamp": get_malaysia_time().isoformat(),
         "client": client_name,
@@ -151,7 +209,7 @@ def push_chat_to_sheets(client_name, phone_number, sender_type, message_text):
     }
     try:
         response = requests.post(apps_script_url, json=payload, timeout=10)
-        logging.info(f"DEBUG SHEET SYNC CLI-006: Status {response.status_code} - {response.text}")
+        logging.info("Sync sheet: status %s", response.status_code)
     except Exception as e:
         logging.error(f"Ralat hantar ke Google Sheet CLI-006: {e}")
 
@@ -163,21 +221,17 @@ def index():
         "version": "2.21"
     }), 200
 
-@app.route("/test-sheet", methods=["GET"])
-def test_sheet_sync():
-    push_chat_to_sheets("CLI-006", "+60132434200", "customer", "Ujian manual sinkronisasi CLI-006 sheet")
-    return jsonify({"status": "sent test data to CLI-006 sheet"}), 200
-
 @app.route("/api/clients", methods=["GET"])
 def get_clients_data():
     try:
         profile_data = load_json_db(CLIENT_PROFILE_FILE)
         return jsonify({"status": "success", "data": profile_data}), 200
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        logging.exception("Ralat API profil klien")
+        return jsonify({"status": "error", "message": "Ralat dalaman"}), 500
 
 # ==========================================
-# LALUAN API REALTIME CHAT & ANALITIK PORTAL (DIKEKALKAN SEPENUHNYA)[cite: 17]
+# LALUAN API REALTIME CHAT & ANALITIK PORTAL (DIKEKALKAN SEPENUHNYA)
 # ==========================================
 @app.route("/api/get-leads", methods=["GET"])
 def get_leads_portal():
@@ -185,20 +239,25 @@ def get_leads_portal():
         chats = load_json_db(CHAT_LOGS_FILE)
         leads_summary = []
         for chat in chats:
+            mode = chat.get("mode", "ai")
             leads_summary.append({
                 "phone": str(chat.get("phone", "")).replace("+", ""),
                 "name": chat.get("customerName", "Pelanggan"),
-                "status": "Aktif 🟢" if chat.get("mode") == "ai" else "Human Touch ⚡"
+                "mode": mode,
+                "lastMessage": chat.get("lastMessage", ""),
+                "time": chat.get("time", ""),
+                "status": "Aktif 🟢" if mode == "ai" else "Human Touch ⚡"
             })
         
         if not leads_summary:
             leads_summary = [
-                {"phone": "601123687357", "name": "Zulfa Sementara", "status": "Aktif 🟢"}
+                {"phone": "601123687357", "name": "Zulfa Sementara", "mode": "ai", "lastMessage": "", "time": "", "status": "Aktif 🟢"}
             ]
             
         return jsonify(leads_summary), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        logging.exception("Ralat API portal")
+        return jsonify({"success": False, "error": "Ralat dalaman"}), 500
 
 @app.route("/api/get-chat-history", methods=["GET"])
 def get_chat_history_portal():
@@ -212,9 +271,63 @@ def get_chat_history_portal():
             if db_phone == clean_target:
                 return jsonify(chat.get("messages", [])), 200
                 
-        return jsonify([], 200)
+        return jsonify([]), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        logging.exception("Ralat API portal")
+        return jsonify({"success": False, "error": "Ralat dalaman"}), 500
+
+@app.route("/api/set-chat-mode", methods=["POST"])
+def set_chat_mode_portal():
+    """Menukar mod perbualan (ai / human) bagi satu nombor telefon dari portal"""
+    try:
+        data = request.json or {}
+        phone = str(data.get("phone", "")).replace("+", "").strip()
+        mode = data.get("mode", "ai")
+
+        if not phone or mode not in ("ai", "human"):
+            return jsonify({"success": False, "error": "Maklumat phone/mode tidak sah"}), 400
+
+        chats = load_json_db(CHAT_LOGS_FILE)
+        found = False
+        for chat in chats:
+            if str(chat.get("phone", "")).replace("+", "").strip() == phone:
+                chat["mode"] = mode
+                found = True
+                break
+
+        if not found:
+            chats.append({
+                "id": phone,
+                "customerName": f"Pelanggan ({phone})",
+                "phone": f"+{phone}",
+                "lastMessage": "",
+                "time": get_malaysia_time().strftime('%I:%M %p'),
+                "mode": mode,
+                "messages": []
+            })
+
+        save_json_db(CHAT_LOGS_FILE, chats)
+
+        conn = get_db_connection()
+        if conn:
+            try:
+                client_id = dapatkan_client_id_dari_token()
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO chat_modes (client_id, phone, mode)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (client_id, phone) DO UPDATE SET mode = EXCLUDED.mode;
+                """, (client_id, phone, mode))
+                conn.commit()
+                cursor.close()
+                conn.close()
+            except Exception as e:
+                logging.error(f"Ralat kemaskini mod ke Supabase (diabaikan): {e}")
+
+        return jsonify({"success": True, "message": f"Mod ditukar kepada {mode}"}), 200
+    except Exception as e:
+        logging.exception("Ralat API portal")
+        return jsonify({"success": False, "error": "Ralat dalaman"}), 500
 
 @app.route("/api/get-analytics", methods=["GET"])
 def get_analytics_portal():
@@ -232,23 +345,85 @@ def get_analytics_portal():
             "human_interventions": human_interventions
         }), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        logging.exception("Ralat API portal")
+        return jsonify({"success": False, "error": "Ralat dalaman"}), 500
+
+@app.route("/api/get-prompt", methods=["GET"])
+def get_bot_prompt():
+    try:
+        prompt_text = ""
+        if os.path.exists(CUSTOM_PROMPT_FILE):
+            with open(CUSTOM_PROMPT_FILE, "r", encoding="utf-8") as f:
+                prompt_text = f.read()
+        return jsonify({"success": True, "prompt": prompt_text}), 200
+    except Exception as e:
+        logging.exception("Ralat API portal")
+        return jsonify({"success": False, "error": "Ralat dalaman"}), 500
 
 @app.route("/api/update-prompt", methods=["POST"])
 def update_bot_prompt():
     try:
         data = request.json or {}
         prompt_text = data.get("prompt", "")
-        logging.info(f"Prompt baharu diterima: {prompt_text}")
+        with open(CUSTOM_PROMPT_FILE, "w", encoding="utf-8") as f:
+            f.write(prompt_text)
+        logging.info("Arahan khas AI berjaya dikemaskini dari portal.")
         return jsonify({"success": True, "message": "Prompt berjaya dikemaskini!"}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        logging.exception("Ralat API portal")
+        return jsonify({"success": False, "error": "Ralat dalaman"}), 500
+
+@app.route("/api/client/subscription", methods=["GET"])
+def get_client_subscription():
+    """Memulangkan status langganan & baki token klien untuk portal"""
+    default_subscription = {
+        "plan": "Standard",
+        "status": "Aktif",
+        "token_quota": 1000,
+        "renewal_date": None,
+        "price_rm": 0
+    }
+    subscription = load_json_db(SUBSCRIPTION_FILE)
+    if not isinstance(subscription, dict) or not subscription:
+        subscription = default_subscription
+        save_json_db(SUBSCRIPTION_FILE, subscription)
+
+    client_id = dapatkan_client_id_dari_token()
+    token_balance = None
+    conn = get_db_connection()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT token_balance FROM clients WHERE id = %s;", (client_id,))
+            res = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            if res:
+                token_balance = res["token_balance"]
+        except Exception as e:
+            logging.error(f"Ralat ambil token_balance: {e}")
+
+    if token_balance is None:
+        chats = load_json_db(CHAT_LOGS_FILE)
+        token_balance = subscription.get("token_quota", 1000) - sum(len(c.get("messages", [])) for c in chats)
+
+    return jsonify({
+        "success": True,
+        "client_id": client_id,
+        "plan": subscription.get("plan", "Standard"),
+        "status": subscription.get("status", "Aktif"),
+        "token_quota": subscription.get("token_quota", 1000),
+        "token_balance": max(0, token_balance),
+        "renewal_date": subscription.get("renewal_date"),
+        "price_rm": subscription.get("price_rm", 0)
+    }), 200
 
 @app.route("/api/update-client-profile", methods=["POST"])
 def update_client_profile():
     try:
         data = request.json or {}
         username = data.get("username", "")
+        company_name = data.get("company_name", "")
         bot_name = data.get("bot_name", "")
         admin_number = data.get("admin_number", "")
         fb_link = data.get("fb_link", "")
@@ -261,6 +436,7 @@ def update_client_profile():
         
         for profile in profiles:
             if profile.get("username") == username:
+                if company_name: profile["company_name"] = company_name
                 if bot_name: profile["bot_name"] = bot_name
                 if admin_number: profile["admin_number"] = admin_number
                 profile["fb_link"] = fb_link
@@ -274,6 +450,7 @@ def update_client_profile():
         if not found:
             profiles.append({
                 "username": username,
+                "company_name": company_name,
                 "bot_name": bot_name or f"bot-{username}",
                 "admin_number": admin_number,
                 "fb_link": fb_link,
@@ -285,7 +462,8 @@ def update_client_profile():
         save_json_db(CLIENT_PROFILE_FILE, profiles)
         return jsonify({"success": True, "message": "Profil klien berjaya disimpan secara kekal!"}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        logging.exception("Ralat API portal")
+        return jsonify({"success": False, "error": "Ralat dalaman"}), 500
 
 @app.route("/api/send-whatsapp", methods=["POST"])
 def send_whatsapp_portal():
@@ -323,11 +501,12 @@ def send_whatsapp_portal():
             return jsonify({"success": True, "message": "Mesej berjaya dihantar!"}), 200
         return jsonify({"success": False, "error": "Maklumat tidak lengkap"}), 400
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        logging.exception("Ralat API portal")
+        return jsonify({"success": False, "error": "Ralat dalaman"}), 500
 # ==========================================
 
 # ==========================================
-# API DASHBOARD STATS & ANALISIS PERATUSAN (%)[cite: 17]
+# API DASHBOARD STATS & ANALISIS PERATUSAN (%)
 # ==========================================
 @app.route("/api/client/dashboard-stats/", methods=["GET"])
 def get_client_dashboard_stats(client_id):
@@ -473,17 +652,18 @@ def get_client_messages_supabase(client_id):
         return jsonify(messages_list), 200
     except Exception as e:
         logging.error(f"Ralat API client messages PostgreSQL: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        logging.exception("Ralat API portal")
+        return jsonify({"success": False, "error": "Ralat dalaman"}), 500
 
 @app.route("/webhook", methods=["GET"])
 def verify_whatsapp_webhook():
-    verify_token_env = os.getenv("VERIFY_TOKEN", "token_rahsia_anda")
+    verify_token_env = os.getenv("VERIFY_TOKEN", "")
     mode = request.args.get("hub.mode")
     token = request.args.get("hub.verify_token")
     challenge = request.args.get("hub.challenge")
     
     if mode and token:
-        if mode == "subscribe" and token == verify_token_env:
+        if verify_token_env and mode == "subscribe" and hmac.compare_digest(token, verify_token_env):
             logging.info("Webhook berjaya disahkan oleh Meta!")
             return challenge, 200
         else:
@@ -493,6 +673,8 @@ def verify_whatsapp_webhook():
 @app.route("/webhook", methods=["POST"])
 def whatsapp_webhook():
     data = request.json or {}
+    if os.getenv("BOT_PAUSED", "").lower() in ("1", "true", "yes"):
+        return jsonify({"status": "paused"}), 200
     ACTIVE_CLIENT_ID = dapatkan_client_id_dari_token()
 
     try:
@@ -514,6 +696,11 @@ def whatsapp_webhook():
             return jsonify({"status": "ignored", "reason": "no messages array"}), 200
 
         msg_obj = messages[0]
+        message_id = msg_obj.get("id")
+        if not message_id:
+            return jsonify({"status": "ignored", "reason": "missing message id"}), 200
+        if msg_obj.get("type") not in ("text", "image"):
+            return jsonify({"status": "ignored", "reason": "unsupported message type"}), 200
         
         sender_phone = str(
             msg_obj.get("from") 
@@ -523,6 +710,8 @@ def whatsapp_webhook():
 
         if not sender_phone or sender_phone == "None":
             return jsonify({"status": "ignored", "reason": "no sender phone"}), 200
+        if not claim_webhook_message(message_id):
+            return jsonify({"status": "ignored", "reason": "duplicate message"}), 200
         
         message_text = ""
         msg_type = msg_obj.get("type")
@@ -533,9 +722,7 @@ def whatsapp_webhook():
 
         save_message_to_postgres(ACTIVE_CLIENT_ID, f"+{sender_phone}", message_text)
 
-        message_lower = message_text.lower()
         waktu_sebenar = get_malaysia_time().strftime('%I:%M %p')
-        
         sbl_chats = load_json_db(CHAT_LOGS_FILE)
         
         found_chat = None
@@ -568,106 +755,38 @@ def whatsapp_webhook():
             })
             found_chat['lastMessage'] = message_text
             
-        current_chat_mode = semak_mod_supabase(ACTIVE_CLIENT_ID, sender_phone)
-
-        try:
-            save_json_db(CHAT_LOGS_FILE, sbl_chats)
-        except Exception as json_err:
-            logging.warning(f"Simpan JSON diabaikan: {json_err}")
-            
-        push_chat_to_sheets("CLI-006", sender_phone, "customer", message_text)
-
-        admin_phone = "60132434200"
-        if sender_phone == admin_phone and message_lower.startswith(("#nota", "#ingat")):
-            nota_baru = message_text.replace("#nota", "").replace("#NOTA", "").replace("#ingat", "").replace("#INGAT", "").strip()
-            try:
-                with open("admin_memory.txt", "a", encoding="utf-8") as f:
-                    f.write(f"- [{get_malaysia_time().strftime('%Y-%m-%d %H:%M')}] {nota_baru}\n")
-            except Exception:
-                pass
-            
-            teks_balasan_admin = f"✅ Nota berjaya disimpan untuk ingatan Zulfa:\n\n\"{nota_baru}\""
-            hantar_teks_whatsapp(sender_phone, teks_balasan_admin)
-            save_message_to_postgres(ACTIVE_CLIENT_ID, "Zulfa (Bot)", teks_balasan_admin)
-            push_chat_to_sheets("CLI-006", sender_phone, "bot", teks_balasan_admin)
-            return jsonify({"status": "success", "action": "admin_memory_saved"}), 200
-
-        if current_chat_mode == "human":
-            logging.info(f"Mesej daripada {sender_phone} diabaikan oleh AI kerana mod semasa adalah Human Touch.")
-            return jsonify({"status": "success", "action": "ignored_human_mode"}), 200
-
-        if any(keyword in message_lower for keyword in KEYWORDS_QR):
-            toyyib_link = getattr(sop_payment, 'TOYYIBPAY_LINK', 'https://toyyibpay.com/sbl-online')
-            caption_teks = (
-                "Berikut adalah QR Code DuitNow CIMB rasmi **SHAHRIL BASRI LEISURE ENTERPRISE**.\n\n"
-                "Sila imbas untuk membuat bayaran **50% deposit** atau **Bayaran Penuh (Full Payment)**.\n"
-                f"Pautan ToyyibPay alternatif: {toyyib_link}\n\n"
-                "Selepas bayaran dibuat, sila hantar resit di sini ya. Terima kasih!"
-            )
-            qr_link = getattr(sop_payment, "QR_CODE_DIRECT_LINK", "")
-            if qr_link:
-                hantar_imej_whatsapp(phone=sender_phone, image_url=qr_link, caption=caption_teks)
-            else:
-                hantar_teks_whatsapp(sender_phone, caption_teks)
-            
-            save_message_to_postgres(ACTIVE_CLIENT_ID, "Zulfa (Bot)", caption_teks)
-            tolak_token_klien(ACTIVE_CLIENT_ID)
-            push_chat_to_sheets("CLI-006", sender_phone, "bot", caption_teks)
-            return jsonify({"status": "success", "action": "sent_qr_image"}), 200
-
-        if any(keyword in message_lower for keyword in KEYWORDS_BAYARAN) or msg_type == "image":
-            data_tempahan_baru = {
-                "ref_id": f"SB-{sender_phone[-4:]}",
-                "nama": f"Pelanggan ({sender_phone})",
-                "no_tel": sender_phone,
-                "tarikh": "Disemak melalui WhatsApp",
-                "status_bayaran": "Resit/Bayaran Dihantar oleh Pelanggan"
-            }
-
-            try:
-                sop_payment.hantar_emel_admin(data_tempahan_baru)
-            except Exception:
-                pass
+            # Semak mod (AI atau Human Touch)
+            chat_mode = semak_mod_supabase(ACTIVE_CLIENT_ID, sender_phone)
+            if chat_mode == "ai" and allow_ai_reply(sender_phone):
+                # Dapatkan jawapan daripada enjin Zulfa AI
+                jawapan_ai = zulfa_brain.jana_jawapan(sender_phone, message_text)
                 
-            admin_phone_target = "60132434200"
-            teks_admin = sop_payment.format_admin_notification(data_tempahan_baru)
-            hantar_teks_whatsapp(admin_phone_target, teks_admin)
-
-            balasan_pelanggan = "Terima kasih! Resit/makluman bayaran anda telah diterima dan disemak oleh pihak pengurusan."
-            hantar_teks_whatsapp(sender_phone, balasan_pelanggan)
-            save_message_to_postgres(ACTIVE_CLIENT_ID, "Zulfa (Bot)", balasan_pelanggan)
-            tolak_token_klien(ACTIVE_CLIENT_ID)
-            push_chat_to_sheets("CLI-006", sender_phone, "bot", balasan_pelanggan)
-            return jsonify({"status": "success", "action": "payment_notification_sent"}), 200
-
-        if message_text and message_text != "[Gambar / Resit Dihantar]":
-            jawapan_ai = zulfa_brain.proses_mesej(sender_phone, message_text)
-            hantar_teks_whatsapp(sender_phone, jawapan_ai)
-            
-            save_message_to_postgres(ACTIVE_CLIENT_ID, "Zulfa (Bot)", jawapan_ai)
-            tolak_token_klien(ACTIVE_CLIENT_ID)
-            
-            waktu_balasan_ai = get_malaysia_time().strftime('%I:%M %p')
-            if found_chat:
-                found_chat.setdefault('messages', []).append({
-                    "sender": "bot", 
-                    "name": "Zulfa (Bot)", 
-                    "text": jawapan_ai, 
-                    "time": waktu_balasan_ai
+                # Masukkan jawapan bot ke dalam senarai mesej
+                found_chat['messages'].append({
+                    "sender": "bot",
+                    "name": "Zulfa",
+                    "text": jawapan_ai,
+                    "time": get_malaysia_time().strftime('%I:%M %p')
                 })
                 found_chat['lastMessage'] = jawapan_ai
-                try:
-                    save_json_db(CHAT_LOGS_FILE, sbl_chats)
-                except Exception:
-                    pass
 
-            push_chat_to_sheets("CLI-006", sender_phone, "bot", jawapan_ai)
+                # Hantar mesej melalui WhatsApp API
+                hantar_teks_whatsapp(sender_phone, jawapan_ai)
+
+                # Simpan rekod ke PostgreSQL & Google Sheets
+                save_message_to_postgres(ACTIVE_CLIENT_ID, "Zulfa Bot", jawapan_ai)
+                push_chat_to_sheets("CLI-006", sender_phone, "bot", jawapan_ai)
+
+                # Tolak token klien
+                tolak_token_klien(ACTIVE_CLIENT_ID)
+
+            save_json_db(CHAT_LOGS_FILE, sbl_chats)
 
         return jsonify({"status": "success", "action": "sent_ai_response"}), 200
 
     except Exception as e:
         logging.error(f"Ralat pada webhook: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "message": "Ralat dalaman"}), 500
 
 def hantar_teks_whatsapp(phone, text):
     token = os.getenv("WHATSAPP_TOKEN")
@@ -688,7 +807,7 @@ def hantar_teks_whatsapp(phone, text):
     
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=10)
-        logging.info(f"Respons hantar WhatsApp ke {clean_phone}: {response.status_code} - {response.text}")
+        logging.info("Respons hantar WhatsApp: status %s", response.status_code)
     except Exception as e:
         logging.error(f"Ralat sambungan Meta API (teks): {e}")
 
@@ -714,7 +833,7 @@ def hantar_imej_whatsapp(phone, image_url, caption):
     
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=10)
-        logging.info(f"Respons hantar Imej QR ke {clean_phone}: {response.status_code} - {response.text}")
+        logging.info("Respons hantar imej: status %s", response.status_code)
     except Exception as e:
         logging.error(f"Ralat sambungan Meta API (imej): {e}")
 
